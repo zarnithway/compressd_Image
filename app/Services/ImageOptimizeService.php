@@ -7,26 +7,29 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
 use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
-use Intervention\Image\Encoders\JpegEncoder;
-use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
 use RuntimeException;
 
 class ImageOptimizeService
 {
+
+    private const QUALITY_LEVELS = [80, 75, 70, 65, 60, 55,];
+
     public function optimize(UploadedFile $file): string
     {
         $mime = $file->getMimeType();
 
-        $extensions = [
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/webp' => 'webp',
+        $supportedTypes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
         ];
 
-        if (! isset($extensions[$mime])) {
-            throw new RuntimeException('Unsupported image format.');
+        if (! in_array($mime, $supportedTypes, true)) {
+            throw new RuntimeException(
+                'Unsupported image format.'
+            );
         }
 
         if (extension_loaded('gd')) {
@@ -41,32 +44,65 @@ class ImageOptimizeService
 
         $manager = new ImageManager($driver);
 
-        $original = file_get_contents($file->getRealPath());
+        $original = file_get_contents(
+            $file->getRealPath()
+        );
 
         if ($original === false) {
-            throw new RuntimeException('Could not read uploaded image.');
+            throw new RuntimeException(
+                'Could not read uploaded image.'
+            );
         }
 
-        $image = $manager->decode($original);
+        $originalSize = strlen($original);
 
-        $encoder = match ($mime) {
-            'image/jpeg' => new JpegEncoder(quality: 80),
-            'image/png' => new PngEncoder(),
-            'image/webp' => new WebpEncoder(quality: 75),
-        };
+        try {
+            $image = $manager->decode($original);
+        } catch (\Throwable $e) {
+            throw new RuntimeException(
+                'Invalid image file.'
+            );
+        }
 
-        $encoded = (string) $image->encode($encoder);
+        $bestEncoded = null;
+        $bestSize = PHP_INT_MAX;
 
-        // Keep the original if encoding makes the image larger.
-        $contents = strlen($encoded) < strlen($original)
-            ? $encoded
-            : $original;
+        foreach (self::QUALITY_LEVELS as $quality) {
+            $encoded = (string) $image->encode(new WebpEncoder(quality: $quality));
 
-        $path = 'optimized/' . Str::uuid()
-            . '.' . $extensions[$mime];
+            $size = strlen($encoded);
 
-        if (! Storage::disk('public')->put($path, $contents)) {
-            throw new RuntimeException('Failed to store optimized image.');
+            if ($size < $bestSize) {
+                $bestEncoded = $encoded;
+                $bestSize = $size;
+            }
+
+            $reduction = $originalSize > 0
+                ? (($originalSize - $size) / $originalSize) * 100
+                : 0;
+
+            if ($reduction >= 25) {
+                break;
+            }
+        }
+
+        if ($bestEncoded === null) {
+            throw new RuntimeException(
+                'Failed to optimize image.'
+            );
+        }
+
+        $path = 'optimized/' .
+            Str::uuid() .
+            '.webp';
+
+        if (! Storage::disk('public')->put(
+            $path,
+            $bestEncoded
+        )) {
+            throw new RuntimeException(
+                'Failed to store optimized image.'
+            );
         }
 
         return $path;

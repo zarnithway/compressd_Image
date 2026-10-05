@@ -15,7 +15,7 @@ class ImageOptimizeForm
             ->image()
             ->required()
             ->storeFiles(false)
-            ->maxSize(10240)
+            ->maxSize(20480)
             ->acceptedFileTypes([
                 'image/jpeg',
                 'image/png',
