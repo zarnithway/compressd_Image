@@ -25,7 +25,7 @@ class CreateImageOptimize extends CreateRecord
 
         $data['path'] = $path;
         $data['size'] = (string) Storage::disk('public')->size($path);
-        $data['type'] = $file->getMimeType();
+        $data['type'] =  Storage::disk('public')->mimeType($path);
 
         return $data;
     }
