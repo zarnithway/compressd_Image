@@ -13,10 +13,27 @@ use RuntimeException;
 
 class ImageOptimizeService
 {
-
-    private const QUALITY_LEVELS = [80, 75, 70, 65, 60, 55,];
+    private const QUALITY_LEVELS = [80, 75, 70, 65, 60, 55];
 
     public function optimize(UploadedFile $file): string
+    {
+        $this->validateImageType($file);
+
+        $manager = $this->createImageManager();
+
+        $original = $this->readOriginalImage($file);
+
+        $image = $this->decodeImage($manager, $original);
+
+        $bestEncoded = $this->encodeBestImage(
+            $image,
+            strlen($original)
+        );
+
+        return $this->storeOptimizedImage($bestEncoded);
+    }
+
+    private function validateImageType(UploadedFile $file): void
     {
         $mime = $file->getMimeType();
 
@@ -31,7 +48,10 @@ class ImageOptimizeService
                 'Unsupported image format.'
             );
         }
+    }
 
+    private function createImageManager(): ImageManager
+    {
         if (extension_loaded('gd')) {
             $driver = new GdDriver();
         } elseif (extension_loaded('imagick')) {
@@ -42,8 +62,11 @@ class ImageOptimizeService
             );
         }
 
-        $manager = new ImageManager($driver);
+        return new ImageManager($driver);
+    }
 
+    private function readOriginalImage(UploadedFile $file): string
+    {
         $original = file_get_contents(
             $file->getRealPath()
         );
@@ -54,21 +77,31 @@ class ImageOptimizeService
             );
         }
 
-        $originalSize = strlen($original);
+        return $original;
+    }
 
+    private function decodeImage(
+        ImageManager $manager,
+        string $original
+    ) {
         try {
-            $image = $manager->decode($original);
+            return $manager->decode($original);
         } catch (\Throwable $e) {
             throw new RuntimeException(
                 'Invalid image file.'
             );
         }
+    }
 
+    private function encodeBestImage($image, int $originalSize): string
+    {
         $bestEncoded = null;
         $bestSize = PHP_INT_MAX;
 
         foreach (self::QUALITY_LEVELS as $quality) {
-            $encoded = (string) $image->encode(new WebpEncoder(quality: $quality));
+            $encoded = (string) $image->encode(
+                new WebpEncoder(quality: $quality)
+            );
 
             $size = strlen($encoded);
 
@@ -92,13 +125,18 @@ class ImageOptimizeService
             );
         }
 
+        return $bestEncoded;
+    }
+
+    private function storeOptimizedImage(string $encoded): string
+    {
         $path = 'optimized/' .
             Str::uuid() .
             '.webp';
 
         if (! Storage::disk('public')->put(
             $path,
-            $bestEncoded
+            $encoded
         )) {
             throw new RuntimeException(
                 'Failed to store optimized image.'
