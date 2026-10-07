@@ -48,7 +48,7 @@ class EditImageOptimize extends EditRecord
 
         $data['path'] = $newPath;
         $data['size'] = (string) Storage::disk('public')->size($newPath);
-        $data['type'] = $file->getMimeType();
+        $data['type'] = Storage::disk('public')->mimeType($newPath);
 
         return $data;
     }
